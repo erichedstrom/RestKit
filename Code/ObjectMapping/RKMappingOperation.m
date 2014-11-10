@@ -152,14 +152,19 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
 
 - (id)valueForKey:(NSString *)key
 {
-    if ([key isEqualToString:RKMetadataKey]) {
+    /* Using firstChar as a small performance enhancement -- one check can avoid several isEqual: calls */
+    unichar firstChar = [key length] > 0 ? [key characterAtIndex:0] : 0;
+
+    if (firstChar == 's' && [key isEqualToString:RKSelfKey]) {
+        return self.object;
+    } else if (firstChar != '@') {
+        return [self.object valueForKey:key];
+    } else if ([key isEqualToString:RKMetadataKey]) {
         return self.metadata;
     } else if ([key isEqualToString:RKParentKey]) {
         return self.parentObject;
     } else if ([key isEqualToString:RKRootKey]) {
         return self.rootObject;
-    } else if ([key isEqualToString:RKSelfKey]) {
-        return self.object;
     } else {
         return [self.object valueForKey:key];
     }
@@ -170,7 +175,15 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
  */
 - (id)valueForKeyPath:(NSString *)keyPath
 {
-    if ([keyPath hasPrefix:RKMetadataKeyPathPrefix]) {
+    /* Using firstChar as a small performance enhancement -- one check can avoid several hasPrefix calls */
+    unichar firstChar = [keyPath length] > 0 ? [keyPath characterAtIndex:0] : 0;
+
+    if (firstChar == 's' && [keyPath hasPrefix:RKSelfKeyPathPrefix]) {
+        NSString *selfKeyPath = [keyPath substringFromIndex:[RKSelfKeyPathPrefix length]];
+        return [self.object valueForKeyPath:selfKeyPath];
+    } else if (firstChar != '@') {
+        return [self.object valueForKeyPath:keyPath];
+    } else if ([keyPath hasPrefix:RKMetadataKeyPathPrefix]) {
         NSString *metadataKeyPath = [keyPath substringFromIndex:[RKMetadataKeyPathPrefix length]];
         return [self.metadata valueForKeyPath:metadataKeyPath];
     } else if ([keyPath hasPrefix:RKParentKeyPathPrefix]) {
@@ -179,9 +192,6 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
     } else if ([keyPath hasPrefix:RKRootKeyPathPrefix]) {
         NSString *rootKeyPath = [keyPath substringFromIndex:[RKRootKeyPathPrefix length]];
         return [self.rootObject valueForKeyPath:rootKeyPath];
-    } else if ([keyPath hasPrefix:RKSelfKeyPathPrefix]) {
-        NSString *selfKeyPath = [keyPath substringFromIndex:[RKSelfKeyPathPrefix length]];
-        return [self.object valueForKeyPath:selfKeyPath];
     } else {
         return [self.object valueForKeyPath:keyPath];
     }
@@ -271,6 +281,7 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
 @property (nonatomic, strong, readwrite) RKObjectMapping *objectMapping; // The concrete mapping
 @property (nonatomic, strong) NSArray *nestedAttributeMappings;
 @property (nonatomic, strong) RKMappingInfo *mappingInfo;
+@property (nonatomic, getter=isCancelled) BOOL cancelled;
 @end
 
 @implementation RKMappingOperation
@@ -294,11 +305,12 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
 - (id)parentObjectForRelationshipMapping:(RKRelationshipMapping *)mapping
 {
     id parentSourceObject = self.sourceObject;
-
-    NSArray *sourceKeyComponents = [mapping.sourceKeyPath componentsSeparatedByString:@"."];
-    if (sourceKeyComponents.count > 1)
+    
+    NSRange lastDotRange = [mapping.sourceKeyPath rangeOfString:@"." options:NSBackwardsSearch|NSLiteralSearch];
+    if (lastDotRange.length > 0)
     {
-        for (NSString *key in [sourceKeyComponents subarrayWithRange:NSMakeRange(0, sourceKeyComponents.count - 1)])
+        NSString *parentKey = [mapping.sourceKeyPath substringToIndex:lastDotRange.location];
+        for (NSString *key in [parentKey componentsSeparatedByString:@"."])
         {
             parentSourceObject = [[RKMappingSourceObject alloc] initWithObject:[parentSourceObject valueForKey:key]
                                                                   parentObject:parentSourceObject
@@ -323,10 +335,21 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
         concreteMapping = (RKObjectMapping *)mapping;
     }
     
-    NSDictionary *dictionaryRepresentation = [representation isKindOfClass:[NSDictionary class]] ? representation : @{ [NSNull null] : representation };
-    NSDictionary *metadata = RKDictionaryByMergingDictionaryWithDictionary(self.metadata, @{ @"mapping": @{ @"parentObject": (self.destinationObject ?: [NSNull null]) } });
-    RKMappingSourceObject *sourceObject = [[RKMappingSourceObject alloc] initWithObject:dictionaryRepresentation parentObject:parentRepresentation rootObject:self.rootSourceObject metadata:metadata];
-    return [self.dataSource mappingOperation:self targetObjectForRepresentation:(NSDictionary *)sourceObject withMapping:concreteMapping inRelationship:relationshipMapping];
+    id destinationObject = nil;
+    if ([self.dataSource respondsToSelector:@selector(mappingOperation:targetObjectForMapping:inRelationship:)])
+    {
+        destinationObject = [self.dataSource mappingOperation:self targetObjectForMapping:concreteMapping inRelationship:relationshipMapping];
+    }
+    
+    if (destinationObject == nil)
+    {
+        NSDictionary *dictionaryRepresentation = [representation isKindOfClass:[NSDictionary class]] ? representation : @{ [NSNull null] : representation };
+        NSDictionary *metadata = RKDictionaryByMergingDictionaryWithDictionary(self.metadata, @{ @"mapping": @{ @"parentObject": (self.destinationObject ?: [NSNull null]) } });
+        RKMappingSourceObject *sourceObject = [[RKMappingSourceObject alloc] initWithObject:dictionaryRepresentation parentObject:parentRepresentation rootObject:self.rootSourceObject metadata:metadata];
+        destinationObject = [self.dataSource mappingOperation:self targetObjectForRepresentation:(NSDictionary *)sourceObject withMapping:concreteMapping inRelationship:relationshipMapping];
+    }
+
+    return destinationObject;
 }
 
 - (BOOL)validateValue:(id *)value atKeyPath:(NSString *)keyPath
@@ -542,7 +565,7 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
     return appliedMappings;
 }
 
-- (BOOL)mapNestedObject:(id)anObject toObject:(id)anotherObject withRelationshipMapping:(RKRelationshipMapping *)relationshipMapping metadata:(NSDictionary *)metadata
+- (BOOL)mapNestedObject:(id)anObject toObject:(id)anotherObject parent:(id)parentSourceObject withRelationshipMapping:(RKRelationshipMapping *)relationshipMapping metadata:(NSDictionary *)metadata
 {
     NSAssert(anObject, @"Cannot map nested object without a nested source object");
     NSAssert(anotherObject, @"Cannot map nested object without a destination object");
@@ -554,7 +577,7 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
     subOperation.dataSource = self.dataSource;
     subOperation.delegate = self.delegate;
     subOperation.metadata = subOperationMetadata;
-    subOperation.parentSourceObject = [self parentObjectForRelationshipMapping:relationshipMapping];
+    subOperation.parentSourceObject = parentSourceObject;
     subOperation.rootSourceObject = self.rootSourceObject;
     [subOperation start];
     
@@ -604,7 +627,7 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
         RKLogDebug(@"Mapping %@ declined mapping for representation %@: returned `nil` destination object.", relationshipMapping.mapping, destinationObject);
         return NO;
     }
-    [self mapNestedObject:value toObject:destinationObject withRelationshipMapping:relationshipMapping metadata:@{ @"mapping": @{ @"collectionIndex": [NSNull null] } }];
+    [self mapNestedObject:value toObject:destinationObject parent:parentSourceObject withRelationshipMapping:relationshipMapping metadata:@{ @"mapping": @{ @"collectionIndex": [NSNull null] } }];
 
     // If the relationship has changed, set it
     if ([self shouldSetValue:&destinationObject forKeyPath:relationshipMapping.destinationKeyPath usingMapping:relationshipMapping]) {
@@ -670,11 +693,11 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
         }
     }
 
+    id parentSourceObject = [self parentObjectForRelationshipMapping:relationshipMapping];
     [value enumerateObjectsUsingBlock:^(id nestedObject, NSUInteger collectionIndex, BOOL *stop) {
-        id parentSourceObject = [self parentObjectForRelationshipMapping:relationshipMapping];
         id mappableObject = [self destinationObjectForMappingRepresentation:nestedObject parentRepresentation:parentSourceObject withMapping:relationshipMapping.mapping inRelationship:relationshipMapping];
         if (mappableObject) {
-            if ([self mapNestedObject:nestedObject toObject:mappableObject withRelationshipMapping:relationshipMapping metadata:@{ @"mapping": @{ @"collectionIndex": @(collectionIndex) } }]) {
+            if ([self mapNestedObject:nestedObject toObject:mappableObject parent:parentSourceObject withRelationshipMapping:relationshipMapping metadata:@{ @"mapping": @{ @"collectionIndex": @(collectionIndex) } }]) {
                 [relationshipCollection addObject:mappableObject];
             }
         } else {
@@ -856,8 +879,13 @@ static NSString *const RKSelfKeyPathPrefix = @"self.";
 
 - (void)cancel
 {
-    [super cancel];
+    self.cancelled = YES;
     RKLogDebug(@"Mapping operation cancelled: %@", self);
+}
+
+- (void)start
+{
+    [self main];
 }
 
 - (void)main
