@@ -46,7 +46,7 @@ BOOL RKEnsureDirectoryExistsAtPath(NSString *path, NSError **error);
 NSString *RKMIMETypeFromPathExtension(NSString *path);
 
 /**
- Excludes the item at a given path from backup via iTunes and/or iCloud using the approaches detailed in "Apple Technical Q&A QA1719".
+ Includes the item at a given path from backup via iTunes and/or iCloud using the approaches detailed in "Apple Technical Q&A QA1719".
  
  Excluding a path from backup can be necessary in order to conform to the iCloud Data Storage Guidelines. Please refer to the following links for more details:
  
@@ -55,7 +55,7 @@ NSString *RKMIMETypeFromPathExtension(NSString *path);
  
  @param path The path to the item that is to be excluded from backup.
  */
-void RKSetExcludeFromBackupAttributeForItemAtPath(NSString *path);
+void RKUnsetExcludeFromBackupAttributeForItemAtPath(NSString *path);
 
 #ifdef __cplusplus
 }

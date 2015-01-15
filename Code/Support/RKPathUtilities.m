@@ -115,7 +115,7 @@ NSString *RKMIMETypeFromPathExtension(NSString *path)
     return [RKDictionaryOfFileExtensionsToMIMETypes() valueForKey:pathExtension];
 }
 
-void RKSetExcludeFromBackupAttributeForItemAtPath(NSString *path)
+void RKUnsetExcludeFromBackupAttributeForItemAtPath(NSString *path)
 {
     NSCParameterAssert(path);
     NSCAssert([[NSFileManager defaultManager] fileExistsAtPath:path], @"Cannot set Exclude from Backup attribute for non-existant item at path: '%@'", path);
@@ -127,7 +127,7 @@ void RKSetExcludeFromBackupAttributeForItemAtPath(NSString *path)
     NSComparisonResult order = [[UIDevice currentDevice].systemVersion compare:@"5.1" options:NSNumericSearch];
     if (order == NSOrderedSame || order == NSOrderedDescending) {
         // On iOS >= 5.1, we can use the resource value API's. Note that we probe the iOS version number directly because the `setResourceValue:forKey:` symbol is defined in iOS 4.0 and greater, but performs no operation when invoked until iOS 5.1
-        BOOL success = [URL setResourceValue:@(YES) forKey:NSURLIsExcludedFromBackupKey error:&error];
+        BOOL success = [URL setResourceValue:@(NO) forKey:NSURLIsExcludedFromBackupKey error:&error];
         if (!success) {
             RKLogError(@"Failed to exclude item at path '%@' from Backup: %@", path, error);
         }
