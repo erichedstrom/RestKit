@@ -235,9 +235,13 @@ static char RKManagedObjectContextChangeMergingObserverAssociationKey;
     }
     persistentStore = [self.persistentStoreCoordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nilOrConfigurationName URL:storeURL options:seedOptions error:error];
     if (! persistentStore) return nil;
-    
-    // Exclude the SQLite database from iCloud Backups to conform to the iCloud Data Storage Guidelines
-    RKSetExcludeFromBackupAttributeForItemAtPath(storePath);
+
+    // *** NOTE WeddingHappy Change *** Stock RestKit excludes its sqlite files from iCloud/iTunes backups.
+    // We want the sqlite files backed up so they can be restored when people get new phones.
+    // See https://github.com/RestKit/RestKit/issues/1233 .
+
+    // Include the SQLite database in iCloud Backups
+    RKUnsetExcludeFromBackupAttributeForItemAtPath(storePath);
     
     return persistentStore;
 }
