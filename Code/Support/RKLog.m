@@ -45,7 +45,7 @@
 {
     RKlcl_configure_by_name("RestKit*", RKLogLevelDefault);
     RKlcl_configure_by_name("App", RKLogLevelDefault);
-    RKSetLoggingClass([RKLOG_CLASS class]);
+    if (RKGetLoggingClass() == Nil) RKSetLoggingClass([RKLOG_CLASS class]);
     RKLogInfo(@"RestKit logging initialized...");
 }
 
@@ -64,11 +64,6 @@ void RKSetLoggingClass(Class <RKLogging> loggingClass)
 }
 
 @implementation RKNSLogLogger
-
-+ (void)load
-{
-    if (RKLoggingClass == Nil) RKLoggingClass = self;
-}
 
 + (void)logWithComponent:(_RKlcl_component_t)component
                    level:(_RKlcl_level_t)level
@@ -175,7 +170,7 @@ void RKLogIntegerAsBinary(NSUInteger bitMask)
 void RKLogValidationError(NSError *error)
 {
 #ifdef _COREDATADEFINES_H    
-    if ([[error domain] isEqualToString:@"NSCocoaErrorDomain"]) {
+    if ([[error domain] isEqualToString:NSCocoaErrorDomain]) {
         NSDictionary *userInfo = [error userInfo];
         NSArray *errors = [userInfo valueForKey:@"NSDetailedErrors"];
         if (errors) {
@@ -202,10 +197,10 @@ void RKLogValidationError(NSError *error)
                        [userInfo valueForKey:NSValidationPredicateErrorKey],
                        [userInfo valueForKey:NSValidationObjectErrorKey]);
         }
+        return;
     }
-#else
-    RKLogError(@"Validation Error: %@ (userInfo: %@)", error, [error userInfo]);
 #endif
+    RKLogError(@"Validation Error: %@ (userInfo: %@)", error, [error userInfo]);
 }
 
 #ifdef _COREDATADEFINES_H
