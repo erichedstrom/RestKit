@@ -18,7 +18,7 @@ Pod::Spec.new do |s|
 
   # Add Core Data to the PCH if the Core Data subspec is imported. This enables conditional compilation to kick in.
   s.prefix_header_contents = <<-EOS
-#if __has_include("RKCoreData.h")
+#if __has_include(<RestKit/CoreData.h>)
     #import <CoreData/CoreData.h>
 #endif
 EOS
@@ -100,7 +100,6 @@ EOS
 
   s.subspec 'Support' do |ss|
     ss.source_files   = 'Code/RestKit.h', 'Code/Support.h', 'Code/Support'
-    ss.preserve_paths = 'Vendor/LibComponentLogging/Core' # Preserved because they are symlinked
     ss.dependency 'TransitionKit', '~> 2.2'
   end
 
